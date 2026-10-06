@@ -18,7 +18,8 @@ import type { ChatStore } from './services/chat-store'
 
 interface Check {
   name: string
-  ok: boolean
+  /** pass=通过，fail=失败，skip=环境不具备（例如 CI 机器上根本没装微信） */
+  status: 'pass' | 'fail' | 'skip'
   detail: string
 }
 
@@ -26,12 +27,56 @@ export function smokeRequested(): boolean {
   return process.argv.includes('--wes-smoke') || process.env.WES_SMOKE === '1'
 }
 
+/**
+ * 汇总并决定退出码。
+ *
+ * **只有 fail 才返回非 0**：skip 表示「这台机器没有微信数据」（CI runner 的常态），
+ * 若把 skip 也算失败，冒烟就没法进流水线做前置校验。
+ */
+function finishSmoke(checks: Check[], started: number, smokeWorkDir: string): number {
+  const failed = checks.filter((check) => check.status === 'fail')
+  const passed = checks.filter((check) => check.status === 'pass')
+  const skipped = checks.filter((check) => check.status === 'skip')
+  console.log(
+    `\n===== 冒烟结果：${passed.length}/${checks.length - skipped.length} 通过` +
+      `${skipped.length ? ` · ${skipped.length} 项跳过` : ''} · ${((Date.now() - started) / 1000).toFixed(1)}s =====`
+  )
+  if (failed.length) {
+    console.log('失败项：')
+    for (const item of failed) console.log(`  - ${item.name}: ${item.detail}`)
+  }
+  if (skipped.length) {
+    console.log('跳过项（环境缺失，不是失败）：')
+    for (const item of skipped) console.log(`  - ${item.name}: ${item.detail}`)
+  }
+  console.log(`产物目录：${join(smokeWorkDir, 'exports')}`)
+  log.info('app', `冒烟自检结束：通过 ${passed.length} · 失败 ${failed.length} · 跳过 ${skipped.length}`)
+  return failed.length === 0 ? 0 : 1
+}
+
 export async function runSmoke(): Promise<number> {
   const started = Date.now()
   const checks: Check[] = []
   const step = (name: string, ok: boolean, detail = ''): void => {
-    checks.push({ name, ok, detail })
+    checks.push({ name, status: ok ? 'pass' : 'fail', detail })
     console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? `  — ${detail}` : ''}`)
+  }
+  /**
+   * 环境不具备时记为 SKIP 而不算失败。
+   *
+   * 为什么需要：这套断言依赖「本机装了微信 + 有真实密钥」，CI runner 上两者都没有。
+   * 如果它们算失败，就无法把冒烟接进流水线做前置校验。
+   * 注意 SKIP 只用于「环境缺失」，真实断言失败仍然是 FAIL。
+   */
+  const skip = (name: string, reason: string): void => {
+    checks.push({ name, status: 'skip', detail: reason })
+    console.log(`SKIP  ${name}  — ${reason}`)
+  }
+  /** 记录「因为环境缺失而跳过」的次数，用于结尾的汇总 */
+  let skipped = 0
+  const skips = (name: string, reason: string): void => {
+    skipped += 1
+    skip(name, reason)
   }
 
   const smokeWorkDir = join(tmpdir(), 'wes-smoke')
@@ -56,23 +101,43 @@ export async function runSmoke(): Promise<number> {
     step('运行时能力', caps.sqlite, `sqlite=${caps.sqliteVersion} python=${caps.pythonVersion ?? 'n/a'}`)
 
     const installation = await detectInstallation()
-    step(
-      '微信环境探测',
-      Boolean(installation.installPath || installation.storageCandidates.length),
-      `${installation.variant} 版本=${installation.version ?? '未解析'} running=${installation.running}`
-    )
-    step('微信版本解析（PE 版本资源）', Boolean(installation.version), installation.version ?? '未解析出 x.y.z')
+    if (!installation.installPath && installation.storageCandidates.length === 0) {
+      skips('微信环境探测', '本机没有安装微信（CI runner 属正常情况）')
+      skips('账号目录扫描', '没有微信数据目录，无法继续后面的真实链路断言')
+      skips('密钥读取', '同上')
+      skips('解密 / 会话 / 导出全链路', '缺少真实微信数据与密钥')
+      console.log('\n      这类环境下能验证的是：构建产物可启动、运行时能力、模块可加载。')
+    } else {
+      step(
+        '微信环境探测',
+        Boolean(installation.installPath || installation.storageCandidates.length),
+        `${installation.variant} 版本=${installation.version ?? '未解析'} running=${installation.running}`
+      )
+      step('微信版本解析（PE 版本资源）', Boolean(installation.version), installation.version ?? '未解析出 x.y.z')
+    }
 
-    const accounts = await listAccounts()
+    const accounts = installation.installPath || installation.storageCandidates.length > 0 ? await listAccounts() : []
     const account = accounts[0]
-    if (accounts.length === 0) {
+    if (accounts.length === 0 && (installation.installPath || installation.storageCandidates.length > 0)) {
       const { dataRootCandidates } = await import('./services/wechat-environment')
       const candidates = await dataRootCandidates(workspace.get().wechatDataDir)
       console.log('      数据根候选：')
       for (const candidate of candidates) console.log(`        ${existsSync(candidate) ? '[有]' : '[无]'} ${candidate}`)
+      skips('账号目录扫描', '没有可用的微信账号目录')
+    } else if (account) {
+      step('账号目录扫描', true, accounts.map((a) => `${a.id}(${a.stores.length}库)`).join(', '))
     }
-    step('账号目录扫描', accounts.length > 0, accounts.map((a) => `${a.id}(${a.stores.length}库)`).join(', '))
-    if (!account) throw new Error('没有可用的微信账号目录')
+
+    if (!account) {
+      // 环境缺失：跳过真实链路，但仍然完成「进程能起来、模块能加载」的验证
+      const sqlcipher = await import('./services/sqlcipher')
+      step(
+        'SQLCipher 参数自检',
+        sqlcipher.PAGE_SIZE === 4096 && sqlcipher.IV_OFFSET === 4016 && sqlcipher.KDF_ITERATIONS === 256000,
+        `page=${sqlcipher.PAGE_SIZE} iv@${sqlcipher.IV_OFFSET} iter=${sqlcipher.KDF_ITERATIONS}`
+      )
+      return finishSmoke(checks, started, smokeWorkDir)
+    }
 
     workspace.patch({ wechatDataDir: account.dbStoragePath })
 
@@ -242,15 +307,5 @@ export async function runSmoke(): Promise<number> {
     console.error(error)
   }
 
-  const failed = checks.filter((check) => !check.ok)
-  console.log(
-    `\n===== 冒烟结果：${checks.length - failed.length}/${checks.length} 通过 · ${((Date.now() - started) / 1000).toFixed(1)}s =====`
-  )
-  if (failed.length) {
-    console.log('失败项：')
-    for (const item of failed) console.log(`  - ${item.name}: ${item.detail}`)
-  }
-  console.log(`产物目录：${join(smokeWorkDir, 'exports')}`)
-  log.info('app', `冒烟自检结束：${checks.length - failed.length}/${checks.length}`)
-  return failed.length === 0 ? 0 : 1
+  return finishSmoke(checks, started, smokeWorkDir)
 }

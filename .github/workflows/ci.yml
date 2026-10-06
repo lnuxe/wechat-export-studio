@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  # 快速反馈：编码、类型、构建产物是否成型（不需要图形环境）
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+        env:
+          ELECTRON_MIRROR: https://npmmirror.com/mirrors/electron/
+      - name: Encoding check
+        run: npm run check:encoding
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Build (main / preload / renderer)
+        run: npx electron-vite build
+      - name: Check build outputs exist
+        run: |
+          test -f out/main/index.js
+          test -f out/preload/index.cjs
+          test -f out/renderer/index.html
+          echo "三端产物齐全"
+
+  # 界面验收：开真窗口、逐页切换、抓图，收集渲染错误（Windows 有桌面会话）
+  ui:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+        env:
+          ELECTRON_MIRROR: https://npmmirror.com/mirrors/electron/
+      - name: Build
+        run: npx electron-vite build
+      # runner 上没装微信：解密相关的断言会 SKIP，界面渲染与路由仍然全量验证
+      - name: UI self-check (router + preload bridge + render errors)
+        run: npm run smoke:ui
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-screenshots
+          path: ${{ runner.temp }}/wes-ui/*.png
+          if-no-files-found: warn
+          retention-days: 7
