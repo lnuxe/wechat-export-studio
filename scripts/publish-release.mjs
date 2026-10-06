@@ -102,14 +102,15 @@ async function call(target, init = {}) {
   return body
 }
 
-/** 正文：优先用专门的 release notes 文件，其次用包描述，并总是附上摘要 */
+/**
+ * 正文：优先用专门的 release notes 文件（支持占位符），否则用包描述。
+ *
+ * 占位符的意义：说明文件不该硬编码某一次构建的摘要——CI 每次构建的产物字节
+ * 本来就可能不同（时间戳等），写死了就会出现「正文说 A、资产实际是 B」的矛盾
+ * （v0.1.0 第一版就是这样，正文留着本地构建的哈希，资产却是 CI 构建的）。
+ * 所以正文里用 {{SHA256}} / {{SIZE_MB}} / {{VERSION}}，由这里回填真实值。
+ */
 function buildBody() {
-  let base = ''
-  if (existsSync(notesPath)) {
-    base = readFileSync(notesPath, 'utf8')
-  } else {
-    base = `## ${pkg.name} ${tag}\n\n${pkg.description ?? ''}\n`
-  }
   const fingerprint = [
     '',
     '---',
@@ -123,8 +124,21 @@ function buildBody() {
     '校验：`certutil -hashfile "<下载的文件>" SHA256`',
     ''
   ].join('\n')
-  // 正文里如果已经写了某个 sha256，就不再重复追加指纹表（避免两份互相矛盾）
-  return base.includes(sha256) ? base : base + fingerprint
+
+  if (!existsSync(notesPath)) {
+    return `## ${pkg.name} ${tag}\n\n${pkg.description ?? ''}\n${fingerprint}`
+  }
+
+  const template = readFileSync(notesPath, 'utf8')
+  if (template.includes('{{SHA256}}')) {
+    return template
+      .replaceAll('{{SHA256}}', sha256)
+      .replaceAll('{{SIZE_MB}}', sizeMb)
+      .replaceAll('{{VERSION}}', version)
+  }
+  // 兼容没有占位符的旧说明：改用真实摘要，并补上指纹表
+  const fixed = template.replace(/(SHA256[^\n]*?`)([0-9a-fA-F]{64})(`)/, `$1${sha256}$3`)
+  return fixed.includes(sha256) ? fixed : fixed + fingerprint
 }
 
 const release = await call(`/repos/${repository}/releases/tags/${tag}`).catch(async (error) => {

@@ -203,7 +203,60 @@ npm run check:encoding  # 源码里不该有 BOM / 替换符 / NUL 字节
 | `smoke` 全链路 | **33/33 通过**（解密 17/17 库 · WAL 防护命中 · 5 种格式导出 · 正文零乱码） |
 | `smoke:flow` 界面验收 | **16/16 通过**（含滚动加载、回到最新贴底 0px、换肤生效） |
 | `smoke:ui` 基础自检 | 渲染 / preload 桥 / 路由全 PASS，零渲染错误 |
-| 打包版（`release/win-unpacked`） | 17 项通过：真密钥真库解密成功 |
+| 本地打包版 | 17 项通过 |
+| **CI 构建的打包版** | **33/33 通过**（下载 CI 产物、真密钥真库解密，见下节） |
+
+---
+
+## CI / 发布流程
+
+推一个 `v*` 标签就会自动出包并发布，不需要本地打包：
+
+```bash
+npm version patch          # 或手动改 package.json 的 version
+git tag -a v0.1.1 -m "v0.1.1"
+git push origin main v0.1.1   # 触发 .github/workflows/release.yml
+```
+
+流水线做的事（`windows-latest`，约 2 分钟）：
+
+```
+checkout → npm ci → 编码体检 → 类型检查 → smoke → 生成图标
+        → electron-builder 打 NSIS 安装包 → 上传 artifact → 发布 Release
+```
+
+几个刻意的决定：
+
+- **打包步骤显式带 `--publish never`。** electron-builder 一旦检测到 CI 就会「隐式发布」，
+  找不到 `GH_TOKEN` 时直接退出码 1 —— 即使安装包已经打好，后续步骤也全被跳过。
+  第一次跑流水线就是这么挂的。
+- **发布用自己的 `scripts/publish-release.mjs`，不用 `--publish always`。**
+  理由：构建与发布解耦、Release 文案不写死在 yml、发布后能把 `sha256` 回填进正文。
+  脚本幂等（同名资产先删后传），支持 `--dry-run`。
+- **Release 说明里的摘要是回填的，不硬编码。** 同一份代码在不同机器上构建，
+  字节可能不同（时间戳等）。第一版说明里写着本地构建的哈希、资产却是 CI 构建的，
+  两者不一致 —— 现在正文用 `{{SHA256}}` 占位，由脚本回填真实值。
+  `scripts/sync-release-notes.mjs` 可以事后修正某个 Release 的正文。
+- **冒烟在 CI 上不失败。** runner 上没有微信也没有密钥，原先的实现会直接抛错，
+  没法当流水线的前置校验。现在断言分三态 `pass / fail / skip`，
+  环境缺失记为 skip 且不影响退出码；缺微信时仍会验证
+  「主进程起得来、模块加载得了、SQLCipher 参数与代码一致」。
+
+另外 `ci.yml` 在 push / PR 时跑两件事：`verify`（ubuntu：编码 + 类型 + 三端产物齐全）
+与 `ui`（windows：真窗口逐页切换抓图，截图作为 artifact 保留 7 天）。
+
+### 怎么确认「CI 出的包真的能跑」
+
+安装包要跑起来必须真的安装（写注册表、建目录），不适合在脚本里静默做。
+所以做法是：CI 打完包后 `release/win-unpacked/` 里就有解包好的应用，
+直接对它执行一次真实数据自检即可：
+
+```powershell
+$env:WES_WORKDIR = "$env:TEMP\wes-ci-verify"     # 隔离工作区，不动你的配置
+& 'release\win-unpacked\WeChat Export Studio.exe' --wes-smoke
+```
+
+实测结果 **33/33 通过**：13 个库解密成功、WAL 防护命中、会话定位命中、正文零乱码。
 
 ---
 
