@@ -154,6 +154,23 @@ npm run build        # 类型检查 + 三端构建
 npm start            # 预览构建产物
 ```
 
+### 打包 Windows 安装包
+
+```bash
+node scripts/make-icon.mjs    # 生成 build/icon.ico（六种尺寸，脚本绘制）
+npm run dist:win              # 产物写入 release/
+```
+
+国内网络建议同时设置镜像，否则 electron-builder 下载 NSIS 组件会很慢：
+
+```powershell
+$env:ELECTRON_MIRROR = 'https://npmmirror.com/mirrors/electron/'
+$env:ELECTRON_BUILDER_BINARIES_MIRROR = 'https://npmmirror.com/mirrors/electron-builder-binaries/'
+```
+
+已发布的安装包见 [Releases](https://github.com/lnuxe/wechat-export-studio/releases)（v0.1.0 约 106 MB）。
+打包产物本身不进仓库：`.gitignore` 已屏蔽 `release/`，安装包只作为 Release 资产发布。
+
 ### 使用顺序
 
 1. **连接**：确认账号已识别 → 密钥验证通过 → 点「开始解密」。
@@ -166,13 +183,23 @@ npm start            # 预览构建产物
 ### 自检命令（本仓库的开发验收手段）
 
 ```bash
-npm run smoke        # 真实微信库跑完 解密→会话→导出 全链路，32 项断言
-npm run smoke:ui     # 开窗、逐页切换、抓图、收集渲染错误
-npm run smoke:flow   # 用 smoke 的解密产物驱动界面，走完选会话→读消息→导出
-npm run check:encoding  # 源码里不该有 BOM / 替换符 / 全角标点
+npm run smoke           # 真实微信库跑完 解密→会话→导出 全链路，33 项断言
+npm run smoke:ui        # 开窗、逐页切换、抓图、收集渲染错误
+npm run smoke:flow      # 用 smoke 的解密产物驱动界面：滚动加载→导出→设置→换肤，16 项
+npm run check:encoding  # 源码里不该有 BOM / 替换符 / NUL 字节
 ```
 
-自检产物写入 `%TEMP%/wes-smoke`（数据）与 `%TEMP%/wes-ui`（截图），不污染真实工作目录。
+自检用**独立的 userData 与 `%TEMP%` 工作区**，跑完不会改动你自己的配置
+（早期版本会覆盖 `userData/config.json`，已修）。
+
+最近一次验证（真实账号 17 库 / 417 MB）：
+
+| 项目 | 结果 |
+| --- | --- |
+| `smoke` 全链路 | **33/33 通过**（解密 17/17 库 · WAL 防护命中 · 5 种格式导出 · 正文零乱码） |
+| `smoke:flow` 界面验收 | **16/16 通过**（含滚动加载、回到最新贴底 0px、换肤生效） |
+| `smoke:ui` 基础自检 | 渲染 / preload 桥 / 路由全 PASS，零渲染错误 |
+| 打包版（`release/win-unpacked`） | 17 项通过：真密钥真库解密成功 |
 
 ---
 
@@ -184,7 +211,7 @@ npm run check:encoding  # 源码里不该有 BOM / 替换符 / 全角标点
   的 `wx_key.dll`（微信 4.x 内存里只有 passphrase，`SetDBKey` 只在进程启动时调用一次），
   本应用负责找到并验证它的产物 `key.txt`。
 - 界面参考了 [Panther114/Weport](https://github.com/Panther114/Weport) 等 Electron 方案的思路，
-  但没有复用其代码：这里的 5 个页面、图标集与美术贴图都是为本工作台原创的。
+  但没有复用其代码：这里的 3 个页面、两个抽屉、图标集与动效插画都是为本工作台原创的。
 
 ## 许可
 
