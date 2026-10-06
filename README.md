@@ -3,8 +3,11 @@
 把 [泡菜鱼 skill](https://github.com/) 的导出流程（取密钥 → 解密 → 定位会话 → 导出 `chat.txt`）
 做成一个有界面的桌面应用：**Electron 44 + React 19 + TypeScript 5.9 + Tailwind CSS 4 + Vite 7**。
 
+仓库：<https://github.com/lnuxe/wechat-export-studio>
+
 > ⚠️ 仅用于导出**你本人账号、你控制的机器**上的本地数据。聊天记录极敏感：
 > 只在本机处理，不上传、不提交 git、不发给第三方。解密产物是明文 sqlite，请放在受控目录。
+> 本仓库的 `.gitignore` 已屏蔽 `*.db` / `*.dec` / `key.txt` / `chat*.txt` / `exports/` / `decrypted/`。
 
 ---
 
@@ -186,3 +189,4 @@ npm run check:encoding  # 源码里不该有 BOM / 替换符 / 全角标点
 ## 许可
 
 MIT（本应用代码）。上游 skill 与第三方工具的许可各自从其仓库。
+详见 [LICENSE](LICENSE)。

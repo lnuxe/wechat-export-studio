@@ -1,0 +1,32 @@
+MIT License
+
+Copyright (c) 2026 lnuxe
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+## 使用范围声明（重要）
+
+本软件仅用于导出**使用者本人账号、且由使用者本人控制的设备**上的本地微信数据。
+
+- 不得用于获取他人聊天记录、绕过他人设备的安全措施；
+- 导出产物（明文数据库、chat.txt、HTML 阅读器）包含高度敏感的个人隐私，
+  请自行负责其存放与销毁；不要上传网盘、不要提交到任何仓库、不要转发第三方；
+- 作者不对使用者的任何数据泄露、法律风险或第三方纠纷承担责任。
