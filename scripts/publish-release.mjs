@@ -74,12 +74,30 @@ const headers = {
   Accept: 'application/vnd.github+json'
 }
 
-async function call(path, init = {}) {
-  const response = await fetch(`${api}${path}`, { ...init, headers: { ...headers, ...(init.headers || {}) } })
+/**
+ * 调用 GitHub API。
+ *
+ * `target` 既可以是相对路径（`/repos/...`，拼到 api.github.com），
+ * 也可以是完整 URL（上传资产用的是 uploads.github.com，域名不同）。
+ * 这里必须显式判断——第一版无脑拼接，把完整 URL 变成了
+ * `api.github.comhttps://...`，报 ENOTFOUND 却看不出原因。
+ */
+async function call(target, init = {}) {
+  const url = /^https?:\/\//.test(target) ? target : `${api}${target}`
+  const response = await fetch(url, { ...init, headers: { ...headers, ...(init.headers || {}) } })
   const text = await response.text()
-  const body = text ? JSON.parse(text) : null
+  let body = null
+  if (text) {
+    try {
+      body = JSON.parse(text)
+    } catch {
+      body = { message: text.slice(0, 200) }
+    }
+  }
   if (!response.ok) {
-    throw new Error(`${init.method || 'GET'} ${path} → ${response.status} ${body?.message ?? ''}`)
+    const error = new Error(`${init.method || 'GET'} ${url} → ${response.status} ${body?.message ?? ''}`)
+    error.status = response.status
+    throw error
   }
   return body
 }
@@ -110,7 +128,7 @@ function buildBody() {
 }
 
 const release = await call(`/repos/${repository}/releases/tags/${tag}`).catch(async (error) => {
-  if (!String(error.message).includes('404')) throw error
+  if (error.status !== 404) throw error
   console.log(`\nRelease ${tag} 不存在，创建中…`)
   return await call(`/repos/${repository}/releases`, {
     method: 'POST',
