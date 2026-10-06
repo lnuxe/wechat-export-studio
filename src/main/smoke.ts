@@ -7,7 +7,7 @@
  * 为什么要放在应用内：解密/读取依赖 Electron 的 node:sqlite 与工作区配置，
  * 只有跑在真实运行时里，验证才有意义（构建产物是否能跑通是另一回事）。
  */
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { workspace } from './core/workspace'
@@ -51,6 +51,24 @@ function finishSmoke(checks: Check[], started: number, smokeWorkDir: string): nu
   }
   console.log(`产物目录：${join(smokeWorkDir, 'exports')}`)
   log.info('app', `冒烟自检结束：通过 ${passed.length} · 失败 ${failed.length} · 跳过 ${skipped.length}`)
+
+  // 留下标记：UI 全链路验收（--wes-ui-flow）要用这份产物驱动界面，
+  // 它靠这个文件判断「本机有没有真实数据」——没有就优雅跳过而不是失败，
+  // 于是这条验收也能接进 CI（runner 上没装微信，自然没有产物）。
+  const marker = join(smokeWorkDir, 'smoke-ok.json')
+  if (failed.length === 0) {
+    writeFileSync(
+      marker,
+      `${JSON.stringify({ finishedAt: new Date().toISOString(), passed: passed.length, skipped: skipped.length }, null, 2)}\n`,
+      'utf8'
+    )
+    console.log(`标记文件：${marker}`)
+  } else {
+    // 有失败项就把旧标记删掉，避免 UI 全链路拿一份不可信的产物去验收
+    rmSync(marker, { force: true })
+  }
+
+  // 只有真实失败才返回非 0：环境缺失不算失败，否则无法把冒烟接进 CI 做前置校验
   return failed.length === 0 ? 0 : 1
 }
 

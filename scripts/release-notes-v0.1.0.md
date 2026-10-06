@@ -7,12 +7,13 @@
 
 | 文件 | 说明 |
 | --- | --- |
-| `WeChat Export Studio-{{VERSION}}-setup.exe` | Windows x64 安装包（NSIS，可自选安装目录，无需管理员权限） |
+| `WeChat Export Studio-0.1.0-setup.exe` | Windows x64 安装包（NSIS，可自选安装目录，无需管理员权限） |
 
-SHA256：`{{SHA256}}`（{{SIZE_MB}} MB）
+SHA256：`2BCEB5E3DB0723053994029A85D0873A27D7AC2BCC193C2CB01364381B6DD0FC`（106.2 MB）
 
-> 摘要由发布脚本在每次构建后回填，所以这里显示的永远是对应这一份资产的真实值。
-> 校验：`certutil -hashfile "WeChat Export Studio-{{VERSION}}-setup.exe" SHA256`
+> 上面是**已发布的这一份**资产的摘要。重新构建后摘要会变（同一份代码在不同机器上
+> 构建出的字节可能不同），发布新版本时请重新计算再填：
+> `certutil -hashfile "WeChat Export Studio-0.1.0-setup.exe" SHA256`
 
 > 未做代码签名，Windows 首次运行可能提示 SmartScreen；选择「更多信息 → 仍要运行」即可。
 

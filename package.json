@@ -22,9 +22,7 @@
     "smoke:ui": "electron-vite build && electron . --wes-ui-check",
     "smoke:flow": "electron-vite build && node scripts/run-ui-flow.mjs",
     "icon": "node scripts/make-icon.mjs",
-    "dist:win": "npm run build && electron-builder --win --config electron-builder.yml",
-    "release:publish": "node scripts/publish-release.mjs",
-    "release:dry": "node scripts/publish-release.mjs --dry-run"
+    "dist:win": "npm run build && electron-builder --win --config electron-builder.yml"
   },
   "dependencies": {
     "@electron-toolkit/utils": "^4.0.0",

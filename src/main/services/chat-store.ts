@@ -419,7 +419,20 @@ export class ChatStore {
     const needsPostFilter = Boolean(query.keyword) || (query.kinds?.length ?? 0) > 0
     let rows: (RawMessageRow & Record<string, SqlValue>)[]
     if (!needsPostFilter) {
-      const start = query.order === 'desc' ? offset : Math.max(0, total - offset - limit)
+      /*
+       * 分页方向的坑（实测踩过，代价很大）：
+       *
+       *   desc（从最新往回翻）时，**第 0 页是最新的那一页**，
+       *   所以 offset 表示「从最新一端往旧的方向跳过多少条」，
+       *   起点必须是 total - offset - limit，而不是 offset。
+       *
+       *   早先两种顺序都写 `start = offset`，于是「往上翻一页」拿回来的是
+       *   从最旧一端数起的下一页——也就是**较新**的消息。前端把它们前置插入后
+       *   消息数组开始自我增殖，界面内容高度一路涨到 15 万像素，
+       *   而且因为翻页记录里看不到异常，很难判断是数据层还是视图层的问题。
+       */
+      const start =
+        query.order === 'desc' ? Math.max(0, total - offset - limit) : Math.max(0, offset)
       rows = await db.all<RawMessageRow & Record<string, SqlValue>>(
         `select ${MESSAGE_COLUMNS}
          from "${location.table}" order by local_id asc limit ? offset ?`,

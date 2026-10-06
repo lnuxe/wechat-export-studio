@@ -81,14 +81,27 @@ export function ChatsPage(): React.JSX.Element {
   /* ---------------------------------------------------------- 滚动行为 */
 
   /**
-   * 贴底：先瞬时跳到底，再在「用户已经看到底部」的前提下不做平滑动画。
-   * 之前用 smooth 走 1400+ 条消息的距离，动画根本来不及完成，
-   * 结果「回到最新」按钮一直留在屏幕上（实测距底仍有 400px+）。
+   * 贴底。
+   *
+   * 早先用 `scrollTo({ behavior: 'smooth' })`：滚过上千条消息时动画根本来不及完成，
+   * 「回到最新」按钮会一直赖在屏幕上（实测距底仍有 400px+）。现在直接设 scrollTop。
    */
   const scrollToBottom = useCallback(() => {
     const node = scroller.current
     if (!node) return
     node.scrollTop = node.scrollHeight
+  }, [])
+
+  /** 探针：把关键滚动状态挂到 window 上，便于自动化验收直接读（而不是靠猜时序） */
+  const traceScroll = useCallback((from: string) => {
+    const node = scroller.current
+    if (!node || typeof window === 'undefined') return
+    const store = ((window as unknown as Record<string, unknown>).__scrollTrace ??= []) as string[]
+    const distance = node.scrollHeight - node.scrollTop - node.clientHeight
+    // 只在「不贴底」时记录，避免刷屏
+    store.push(
+      `${from} top=${Math.round(node.scrollTop)} h=${node.scrollHeight} c=${node.clientHeight} dist=${Math.round(distance)}`
+    )
   }, [])
 
   const onScroll = useCallback(() => {
@@ -97,32 +110,51 @@ export function ChatsPage(): React.JSX.Element {
     const distance = node.scrollHeight - node.scrollTop - node.clientHeight
     atBottom.current = distance < 80
     setShowJump(distance > 240)
-    // 程序化调整滚动位置（翻页钉视口、贴底）会连带触发 scroll 事件，这里要忽略，
+    // 程序化调整滚动位置（翻页钉视口、贴底）会连带触发 scroll 事件，这里必须忽略，
     // 否则会「翻一页 → 触发再翻一页」自我循环（实测一次点击能连翻好几页）。
     if (suppressScroll.current) return
-    // 顶部 240px 内触发加载更早的消息；先把当前高度记下来，插完内容才能钉住视口
-    if (node.scrollTop < 240 && !loadingOlderRef.current) {
-      anchorHeight.current = node.scrollHeight
-      void loadOlder()
+
+    // 翻页闸门：只有离开过顶部区域，才允许再次触发加载。
+    // 没有这道闸门时，贴底/钉视口这些程序化滚动若落在顶部附近就会不断触发翻页，
+    // 内容被一页页撑大，表现为「明明点了回到最新，却离底部越来越远」（实测差 13942px）。
+    if (node.scrollTop >= 240) {
+      topGate.current = true
+      return
     }
-  }, [loadOlder])
+    if (!topGate.current || loadingOlderRef.current) return
+    // 同一时刻只允许一页在飞；再加一道时间闸门，挡住「翻页 → 位置回弹 → 再翻页」的连续触发
+    if (Date.now() - lastOlderAt.current < 250) return
+
+    topGate.current = false
+    lastOlderAt.current = Date.now()
+    anchorHeight.current = node.scrollHeight
+    traceScroll('load-older-fired')
+    void loadOlder()
+  }, [loadOlder, traceScroll])
   const loadingOlderRef = useRef(false)
   loadingOlderRef.current = loadingOlder
   const suppressScroll = useRef(false)
+  /** 是否已经离开顶部（滚回下方后才允许下一次翻页） */
+  const topGate = useRef(true)
+  /** 上一次翻页时间，用于节流 */
+  const lastOlderAt = useRef(0)
+  /** 刚切换会话、首屏还没贴底 */
+  const justSwitched = useRef(false)
 
-  // 换会话：直接贴底，并把「回到最新」复位
+  // 换会话：把「回到最新」与翻页闸门复位，并标记「首屏还没贴底」
   useEffect(() => {
     prevFirstId.current = null
     prevCount.current = 0
     atBottom.current = true
+    topGate.current = true
+    justSwitched.current = true
     setShowJump(false)
     const timer = setTimeout(() => {
       scrollToBottom()
-      const node = scroller.current
-      if (node) node.scrollTop = node.scrollHeight
+      traceScroll('after-switch-timeout')
     }, 80)
     return () => clearTimeout(timer)
-  }, [selected?.username, scrollToBottom])
+  }, [selected?.username, scrollToBottom, traceScroll])
 
   // 消息变化：区分「往上翻」与「来新消息」，分别保持位置 / 跟随到底
   useLayoutEffect(() => {
@@ -133,6 +165,30 @@ export function ChatsPage(): React.JSX.Element {
     prevFirstId.current = first
     prevCount.current = messages.length
 
+    /*
+     * 首次进入会话必须无条件贴底。
+     *
+     * 为什么不能只看 atBottom：换会话时清空消息→重渲染会产生一次 scroll 事件，
+     * 此刻内容还没铺开（scrollHeight == clientHeight），距离判定成立，
+     * 于是 atBottom 被改成 false。等消息真正到达时「跟随到底」的分支就再也不执行了，
+     * 表现为打开会话后停在顶部、并且一直显示「回到最新」。
+     * 实测探针：after-switch-timeout top=0 h=692 c=692 dist=0，之后再无任何贴底记录。
+     */
+    if (node && justSwitched.current && messages.length > 0) {
+      justSwitched.current = false
+      suppressScroll.current = true
+      scrollToBottom()
+      traceScroll('after-first-paint')
+      requestAnimationFrame(() => {
+        scrollToBottom()
+        suppressScroll.current = false
+        atBottom.current = true
+        refreshJump()
+        traceScroll('after-first-raf')
+      })
+      return
+    }
+
     if (node && grew && prepended && anchorHeight.current !== null) {
       // 关键：往前插入消息后，把视口按「新增高度」往下推，视觉位置原地不动。
       // 不能依赖浏览器默认的滚动锚定——它在 flex + 分组渲染下并不可靠（实测会偏出上万像素）。
@@ -140,8 +196,10 @@ export function ChatsPage(): React.JSX.Element {
       suppressScroll.current = true
       if (added > 0) node.scrollTop += added
       anchorHeight.current = null
+      traceScroll('after-prepend-anchor')
       requestAnimationFrame(() => {
         suppressScroll.current = false
+        traceScroll('after-prepend-raf')
       })
       return
     }
@@ -149,13 +207,15 @@ export function ChatsPage(): React.JSX.Element {
       requestAnimationFrame(() => {
         suppressScroll.current = true
         scrollToBottom()
+        traceScroll('after-follow-raf')
         setTimeout(() => {
           suppressScroll.current = false
           refreshJump()
+          traceScroll('after-follow-settle')
         }, 160)
       })
     }
-  }, [messages, scrollToBottom, refreshJump])
+  }, [messages, scrollToBottom, refreshJump, traceScroll])
 
   const grouped = useMemo(() => groupByDay(messages), [messages])
   const systemHidden = useStudio((s) => s.workspace?.ui.hideSystemMessages ?? false)
@@ -313,6 +373,11 @@ export function ChatsPage(): React.JSX.Element {
                 ref={scroller}
                 onScroll={onScroll}
                 data-thread-scroller
+                /* overflow-anchor: none 是关键。浏览器的自动滚动锚定会在我们往前插入
+                   旧消息时也自行调整 scrollTop，与我们手写的锚点补偿叠加，结果把位置
+                   弹回顶部 → 顶部闸门重新打开 → 又翻一页，形成停不下来的翻页循环
+                   （实测内容高度被撑到 139048px，而应用自己的探针显示已贴底）。 */
+                style={{ overflowAnchor: 'none' }}
                 className="h-full overflow-y-auto px-5 py-4"
               >
                 {loadingOlder ? (
@@ -366,10 +431,12 @@ export function ChatsPage(): React.JSX.Element {
                   onClick={() => {
                     suppressScroll.current = true
                     scrollToBottom()
+                    traceScroll('after-jump-click')
                     atBottom.current = true
                     setTimeout(() => {
                       suppressScroll.current = false
                       refreshJump()
+                      traceScroll('after-jump-settle')
                     }, 160)
                   }}
                   className="absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full border border-jade/30 bg-paper-3/95 px-3.5 py-1.5 text-[12px] text-jade shadow-[0_16px_32px_-24px_rgba(38,33,28,.9)] backdrop-blur transition-transform hover:-translate-y-0.5"

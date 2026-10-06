@@ -5,7 +5,7 @@
  * 用法：node scripts/run-ui-flow.mjs（内部会带 WES_WORKDIR 与独立 userData）
  */
 import { app, BrowserWindow } from 'electron'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 
@@ -13,6 +13,9 @@ app.disableHardwareAcceleration()
 app.commandLine.appendSwitch('disable-gpu')
 
 const outDir = join(tmpdir(), 'wes-ui')
+
+/** 冒烟自检留下的「已完成」标记：没有它就说明这台机器没有真实数据 */
+const smokeMarker = join(tmpdir(), 'wes-smoke', 'smoke-ok.json')
 
 export function uiFlowRequested(): boolean {
   return process.argv.includes('--wes-ui-flow')
@@ -28,6 +31,8 @@ const PROBE = [
   '  const bubbles = Array.from(document.querySelectorAll("main div")).filter((d) =>',
   '    typeof d.className === "string" && d.className.includes("max-w-[74%]")',
   '  )',
+  '  const threadTotal = document.querySelector("main header p span.text-tabular")',
+  '  const totalText = threadTotal ? threadTotal.textContent || "" : ""',
   '  return {',
   '    page: main ? main.getAttribute("data-page") : null,',
   '    textLength: text.length,',
@@ -101,6 +106,19 @@ const waitForCode = (selector, timeoutMs = 4000) =>
 
 export async function runUiFlow(): Promise<number> {
   mkdirSync(outDir, { recursive: true })
+
+  /**
+   * 前置检查：这套验收要用真实解密产物驱动界面（选会话、读消息、导出），
+   * 所以必须先跑过 `npm run smoke`。没有产物就优雅退出 0——
+   * 这样它也能接进 CI（runner 上没装微信，自然没有产物）。
+   */
+  if (!existsSync(smokeMarker)) {
+    console.log('SKIP  UI 全链路验收：没有找到真实数据产物。')
+    console.log(`      期望的标记文件：${smokeMarker}`)
+    console.log('      请先执行 `npm run smoke`（需要本机装有微信并已拿到密钥）。')
+    return 0
+  }
+
   const errors: string[] = []
   const results: { name: string; ok: boolean; detail: string }[] = []
   const check = (name: string, ok: boolean, detail = ''): void => {
@@ -159,22 +177,47 @@ export async function runUiFlow(): Promise<number> {
   const narrowed = await probe()
   console.log(`      搜索「张」后：${narrowed.listItems} 条`)
 
-  let opened = false
+  /**
+   * 打开会话：不按「列表第 N 项」点击。
+   *
+   * 早先是 `[0] / [1] / [2]` 依次试三次，但微信只为「已同步」的会话建消息表
+   * （实测前 20 个会话里只有 1~2 个能定位），到底哪一项能打开取决于
+   * 搜索结果的排序，会随数据变化——这条断言因此偶发失败（约 1/5）。
+   * 现在改成：先把搜索范围收窄到具体名字，点它，然后轮询等消息渲染出来。
+   */
+  const targetName = '张文亭'
+  await window.webContents.executeJavaScript(typeCode('main input[placeholder*="搜索联系人"]', targetName))
+  await settle(1500)
+
+  const clicked = await window.webContents.executeJavaScript(
+    [
+      '(() => {',
+      `  const nodes = Array.from(document.querySelectorAll("main ul li button"))`,
+      `  const hit = nodes.find((n) => (n.textContent || "").includes(${JSON.stringify(targetName)}))`,
+      '  if (!hit) return false',
+      '  hit.click()',
+      '  return true',
+      '})()'
+    ].join('\n')
+  )
+  check(`在列表中找到并点击「${targetName}」`, clicked === true)
+
+  // 轮询等待：气泡渲染出来才算真的打开了
   let bubbles = 0
-  for (let index = 0; index < 3 && !opened; index += 1) {
-    await window.webContents.executeJavaScript(clickNavCode('会话'))
-    await settle(200)
-    await window.webContents.executeJavaScript(
-      `(() => { const n = Array.from(document.querySelectorAll("main ul li button"))[${index}]; if (!n) return false; n.click(); return true })()`
-    )
-    await settle(index === 0 ? 5000 : 3500)
+  let opened = false
+  for (let attempt = 0; attempt < 25 && !opened; attempt += 1) {
+    await settle(400)
     const trace = await readTrace()
-    if (trace.some((line) => line.startsWith('openConversation:locate "Msg_'))) {
-      opened = true
-      bubbles = Number((await probe()).bubbles ?? 0)
-    }
+    const located = trace.some((line) => line.startsWith('openConversation:locate "Msg_'))
+    const snapshot = await probe()
+    bubbles = Number(snapshot.bubbles ?? 0)
+    if (located && bubbles > 0) opened = true
   }
   check('打开会话并渲染消息', opened && bubbles > 0, `${bubbles} 个气泡`)
+
+  // 直接读页面里的滚动探针，而不是靠 sleep 猜时序
+  const scrollTrace = await window.webContents.executeJavaScript('window.__scrollTrace || []')
+  console.log(`      滚动探针：${JSON.stringify(scrollTrace.slice(-6))}`)
 
   const thread = await probe()
   console.log(`      会话轨迹：${JSON.stringify((await readTrace()).slice(-3))}`)
@@ -203,6 +246,41 @@ export async function runUiFlow(): Promise<number> {
   )
   await shoot('flow-04-scroll-older.png')
 
+  /**
+   * 4a. 连续翻页必须逐页推进，不能自我增殖。
+   *
+   * 这条是回归防线：曾经因为后端分页方向写反（desc 时 start 用了 offset），
+   * 「往上翻一页」拿回来的是较新的消息，前端前置插入后内容无限膨胀——
+   * 界面高度涨到 15 万像素，而翻页记录里看不出异常。
+   * 判据：每次翻页只增加约一页的量，且绝不倒退。
+   */
+  let previousCount = Number(afterTop.bubbles ?? 0)
+  let monotonic = true
+  const steps: number[] = []
+  const threadTotal = await window.webContents.executeJavaScript(
+    `(() => { const el = document.querySelector("main header span.text-tabular"); return el ? el.textContent || "" : "" })()`
+  )
+  for (let round = 0; round < 3; round += 1) {
+    // 必须「先往下滚、再滚回顶部」：一直停在 0 不会产生新的 scroll 事件，
+    // 翻页闸门也就不会重新打开（这是刻意设计，防止一次手势连翻多页）。
+    await window.webContents.executeJavaScript(scrollCode(1200))
+    await settle(500)
+    await window.webContents.executeJavaScript(scrollCode(0))
+    await settle(2200)
+    const snapshot = await probe()
+    const count = Number(snapshot.bubbles ?? 0)
+    steps.push(count)
+    if (count < previousCount) monotonic = false
+    previousCount = count
+  }
+  const last = steps.at(-1) ?? Number(afterTop.bubbles ?? 0)
+  const pageGrowth = last - Number(afterTop.bubbles ?? 0)
+  check(
+    '连续翻页逐页推进（不增殖）',
+    monotonic && pageGrowth > 0 && pageGrowth < 700,
+    `气泡 ${afterTop.bubbles} → ${steps.join(' → ')}（共 +${pageGrowth}，会话总量 ${threadTotal}）`
+  )
+
   /* 4b. 用界面上的「回到最新」按钮回到贴底状态 */
   const jumpClicked = await window.webContents.executeJavaScript(
     [
@@ -217,9 +295,36 @@ export async function runUiFlow(): Promise<number> {
     ].join('\n')
   )
   check('出现并点击「回到最新」', jumpClicked === true, jumpClicked ? '按钮已点击' : '没有找到按钮')
-  await settle(2500)
-  const backBottom = await probe()
-  const distance = Number(backBottom.scrollHeight ?? 0) - Number(backBottom.scrollTop ?? 0) - Number(backBottom.clientHeight ?? 0)
+
+  /**
+   * 等滚动真正稳定后再判定。
+   *
+   * 单次 sleep + 一次探针是不够的：点击后内容还在继续插入（翻页 / 平滑滚动），
+   * 那一瞬间读到的是上一帧布局，会得出「距底 13942px」的假结论，
+   * 而应用自己的探针在同一时刻记录的是 dist=0。
+   * 所以这里连续采样，取「连续两次读数一致」作为稳定判据。
+   */
+  let distance = Number.POSITIVE_INFINITY
+  let stable = 0
+  let previous = -1
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    await settle(400)
+    const snapshot = await probe()
+    distance = Math.round(
+      Number(snapshot.scrollHeight ?? 0) - Number(snapshot.scrollTop ?? 0) - Number(snapshot.clientHeight ?? 0)
+    )
+    if (distance === previous && distance < 160) {
+      stable += 1
+      if (stable >= 2) break
+    } else {
+      stable = 0
+    }
+    previous = distance
+  }
+  const jumpTrace = await window.webContents.executeJavaScript('window.__scrollTrace || []')
+  console.log(`      探针共 ${jumpTrace.length} 条，最近 8 条：`)
+  for (const line of jumpTrace.slice(-8)) console.log(`        ${line}`)
+  console.log(`      稳定后距底：${distance}px`)
   check('回到最新后贴底', distance < 160, `距底 ${distance}px`)
 
   /* 5. 导出面板 */
