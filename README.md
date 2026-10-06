@@ -171,6 +171,10 @@ $env:ELECTRON_BUILDER_BINARIES_MIRROR = 'https://npmmirror.com/mirrors/electron-
 已发布的安装包见 [Releases](https://github.com/lnuxe/wechat-export-studio/releases)（v0.1.0 约 106 MB）。
 打包产物本身不进仓库：`.gitignore` 已屏蔽 `release/`，安装包只作为 Release 资产发布。
 
+> 网络提示：部分网络环境下 `github.com:443` 不通（而 `api.github.com` 通），
+> 表现为 `npm install`/`git push` 超时。给 git 临时挂代理即可，不必改全局配置：
+> `git -c http.proxy=http://127.0.0.1:7897 push`
+
 ### 使用顺序
 
 1. **连接**：确认账号已识别 → 密钥验证通过 → 点「开始解密」。
