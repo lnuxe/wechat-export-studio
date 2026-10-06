@@ -1,0 +1,27 @@
+# 依赖与构建产物
+node_modules/
+out/
+release/
+dist/
+*.tsbuildinfo
+
+# 本地配置与日志
+.env
+.env.local
+logs/
+
+# 绝不允许进仓库：解密产物、导出产物、密钥
+*.db
+*.db-shm
+*.db-wal
+*.dec
+key.txt
+chat*.txt
+exports/
+decrypted/
+
+# 编辑器
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

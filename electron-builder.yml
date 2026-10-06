@@ -1,0 +1,36 @@
+appId: com.local.wechat-export-studio
+productName: WeChat Export Studio
+copyright: 仅用于导出本机、本人微信数据
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - out/**/*
+  - package.json
+  - '!**/*.map'
+
+# 解密与导出全部在本机完成，发布包不需要任何联网能力
+asar: true
+npmRebuild: false
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  artifactName: ${productName}-${version}-setup.${ext}
+  # 图标留空则用 Electron 默认图标；放入 build/icon.ico 后会自动使用
+  requestedExecutionLevel: asInvoker
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: 微信导出工作台
+  deleteAppDataOnUninstall: false
+
+# 明文聊天数据不进包、不进更新源，这里显式排除，避免误打包
+extraResources: []

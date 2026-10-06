@@ -1,0 +1,47 @@
+{
+  "name": "wechat-export-studio",
+  "version": "0.1.0",
+  "private": true,
+  "description": "微信聊天记录导出工作台 · Electron + React + TypeScript（泡菜鱼 skill 导出流程的可视化前端）",
+  "author": "local",
+  "license": "MIT",
+  "main": "./out/main/index.js",
+  "type": "module",
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "scripts": {
+    "dev": "electron-vite dev",
+    "start": "electron-vite preview",
+    "build": "npm run typecheck && electron-vite build",
+    "typecheck": "npm run typecheck:node && npm run typecheck:web",
+    "typecheck:node": "tsc -p tsconfig.node.json --noEmit",
+    "typecheck:web": "tsc -p tsconfig.web.json --noEmit",
+    "check:encoding": "node scripts/check-encoding.mjs",
+    "smoke": "electron-vite build && electron . --wes-smoke",
+    "smoke:ui": "electron-vite build && electron . --wes-ui-check",
+    "smoke:flow": "electron-vite build && node scripts/run-ui-flow.mjs",
+    "dist:win": "npm run build && electron-builder --win --config electron-builder.yml"
+  },
+  "dependencies": {
+    "@electron-toolkit/utils": "^4.0.0",
+    "fzstd": "^0.1.1"
+  },
+  "devDependencies": {
+    "@electron-toolkit/tsconfig": "^2.0.0",
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/node": "^22.18.0",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^5.2.0",
+    "electron": "^44.5.1",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^5.0.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "tailwindcss": "^4.3.3",
+    "typescript": "~5.9.3",
+    "vite": "^7.3.6",
+    "zustand": "^5.0.15"
+  }
+}

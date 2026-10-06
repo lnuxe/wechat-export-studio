@@ -1,0 +1,12 @@
+# 统一换行：仓库里存 LF，检出时由 git 决定平台差异
+* text=auto eol=lf
+
+# 二进制（理论上不会进仓库，这里只是兜底声明）
+*.png binary
+*.jpg binary
+*.ico binary
+*.db binary
+*.node binary
+
+# 语言统计：把生成的锁文件排除在语言占比之外
+package-lock.json linguist-generated=true -diff

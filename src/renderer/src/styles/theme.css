@@ -1,0 +1,232 @@
+@import 'tailwindcss';
+
+/*
+ * 设计令牌层。
+ *
+ * 视觉主张：这不是一个「后台管理系统」，而是一张摊在桌上的工作台——
+ * 纸感底色 + 墨色文字 + 青（jade）主色 + 赭（gold）点缀，
+ * 边框极细、阴影极淡，靠留白与字重建立层级，避免 Dashboard 常见的重彩块。
+ * 所有颜色都进 @theme，Tailwind 生成 bg-paper / text-ink 这类原子类，
+ * 组件里不再出现十六进制色值。
+ */
+@theme {
+  --color-paper: #f4efe4;
+  --color-paper-2: #fbf7ef;
+  --color-paper-3: #ffffff;
+  --color-ink: #26211c;
+  --color-ink-soft: #6d635a;
+  --color-ink-faint: #9a8f84;
+  --color-jade: #2f6b5f;
+  --color-jade-bright: #3f8f7f;
+  --color-jade-wash: #ddeae5;
+  --color-gold: #c08a3e;
+  --color-gold-wash: #f4e7d1;
+  --color-clay: #a9524a;
+  --color-clay-wash: #f6e2df;
+  --color-line: #e2d8c7;
+  --color-line-strong: #cfc2ad;
+
+  --font-sans:
+    'PingFang SC', 'HarmonyOS Sans SC', 'Microsoft YaHei', system-ui, -apple-system, 'Segoe UI',
+    sans-serif;
+  --font-serif: 'Songti SC', 'SimSun', 'Noto Serif SC', Georgia, serif;
+  --font-mono: 'JetBrains Mono', 'Cascadia Code', Consolas, 'Courier New', monospace;
+
+  --radius-card: 16px;
+  --radius-pill: 999px;
+
+  --shadow-soft: 0 1px 0 #fff inset, 0 10px 30px -24px rgba(38, 33, 28, 0.55);
+  --shadow-lift: 0 1px 0 #fff inset, 0 18px 40px -28px rgba(38, 33, 28, 0.65);
+  --shadow-inset: inset 0 1px 2px rgba(38, 33, 28, 0.06);
+
+  --animate-rise: rise 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
+  --animate-fade: fade 0.3s ease both;
+  --animate-breathe: breathe 3.6s ease-in-out infinite;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes breathe {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.9;
+    transform: scale(1.03);
+  }
+}
+
+@keyframes sheen {
+  from {
+    background-position: -220% 0;
+  }
+  to {
+    background-position: 220% 0;
+  }
+}
+
+@keyframes wes-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(18px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes wes-pop {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+:root {
+  /* 非 Tailwind 的语义变量（供内联样式与 SVG 使用） */
+  --paper: var(--color-paper);
+  --paper-2: var(--color-paper-2);
+  --ink: var(--color-ink);
+  --ink-soft: var(--color-ink-soft);
+  --ink-faint: var(--color-ink-faint);
+  --jade: var(--color-jade);
+  --jade-bright: var(--color-jade-bright);
+  --gold: var(--color-gold);
+  --clay: var(--color-clay);
+  --line: var(--color-line);
+  --line-strong: var(--color-line-strong);
+  color-scheme: light;
+}
+
+/* 夜间模式：同一套语义，换成冷墨底 */
+:root[data-theme='midnight'] {
+  --color-paper: #16181c;
+  --color-paper-2: #1d2025;
+  --color-paper-3: #23262c;
+  --color-ink: #eceae4;
+  --color-ink-soft: #a3a29c;
+  --color-ink-faint: #74736e;
+  --color-jade: #64b3a1;
+  --color-jade-bright: #7fcbb8;
+  --color-jade-wash: #22322e;
+  --color-gold: #d8a75e;
+  --color-gold-wash: #33291a;
+  --color-clay: #d98b81;
+  --color-clay-wash: #36221f;
+  --color-line: #32363d;
+  --color-line-strong: #454a53;
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+/* 应用级拖拽区：无边框窗口靠它拖动 */
+.drag-region {
+  -webkit-app-region: drag;
+}
+.no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* 细滚动条，跟纸感统一 */
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: color-mix(in oklab, var(--color-line-strong) 80%, transparent);
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: 999px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in oklab, var(--color-jade) 55%, transparent);
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::selection {
+  background: color-mix(in oklab, var(--color-jade) 30%, transparent);
+}
+
+:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--color-jade) 65%, transparent);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* 玻璃卡片：主视觉容器 */
+.surface {
+  background: color-mix(in oklab, var(--color-paper-3) 86%, transparent);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-soft);
+  backdrop-filter: blur(10px) saturate(1.05);
+}
+
+.surface-flat {
+  background: color-mix(in oklab, var(--color-paper-2) 92%, transparent);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-card);
+}
+
+.hairline {
+  border-color: var(--color-line);
+}
+
+.text-tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+.shimmer {
+  background-image: linear-gradient(
+    100deg,
+    transparent 20%,
+    color-mix(in oklab, var(--color-jade) 22%, transparent) 45%,
+    transparent 70%
+  );
+  background-size: 220% 100%;
+  animation: sheen 1.5s linear infinite;
+}
