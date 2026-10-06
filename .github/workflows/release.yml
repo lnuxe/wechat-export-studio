@@ -17,9 +17,9 @@ jobs:
     timeout-minutes: 40
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -43,8 +43,12 @@ jobs:
       - name: Generate app icon
         run: npm run icon
 
+      # --publish never 是必须的：electron-builder 一旦检测到 CI 就会「隐式发布」，
+      # 找不到 GH_TOKEN 时直接以退出码 1 结束——即使安装包已经构建成功，
+      # 后续的上传 artifact 与发布步骤都会被跳过（Release #1 就是这样挂的）。
+      # 发布由下面自己的脚本负责，构建步骤只负责构建。
       - name: Package (NSIS installer)
-        run: npx electron-builder --win --config electron-builder.yml
+        run: npx electron-builder --win --config electron-builder.yml --publish never
         env:
           ELECTRON_MIRROR: https://npmmirror.com/mirrors/electron/
           ELECTRON_BUILDER_BINARIES_MIRROR: https://npmmirror.com/mirrors/electron-builder-binaries/
@@ -54,7 +58,7 @@ jobs:
         run: Get-ChildItem release -File | Select-Object Name, @{n='MB';e={[math]::Round($_.Length/1MB,1)}} | Format-Table -AutoSize
 
       - name: Upload installer as build artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: wechat-export-studio-windows
           path: |
